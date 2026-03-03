@@ -1,0 +1,19 @@
+# --- Generated Data ---
+*.csv
+
+# --- Python Environment ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- OS / IDE Files ---
+.DS_Store
+.vscode/
+.idea/
+.venv/
+env/
+
+# --- Optional ---
+# Uncomment the line below if you want to stop tracking the script itself
+url-crawler.py
+old*.py
