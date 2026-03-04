@@ -1,5 +1,7 @@
 # --- Generated Data ---
 *.csv
+*.txt
+*.json
 
 # --- Python Environment ---
 __pycache__/

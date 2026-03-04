@@ -78,18 +78,33 @@ def extract_terms_from_json(node, filename: str) -> list:
 
     def traverse(current_node):
         if isinstance(current_node, dict):
-            term = current_node.get('idShort', 'Unknown Term')
+            # 1. Smarter idShort: Fallback to IRI suffix if idShort is missing
+            term = current_node.get('idShort')
             
-            # --- IMPROVED TYPE DETECTION ---
-            # 1. Start with whatever modelType we have
-            elem_type = current_node.get('modelType', 'Unknown Type')
+            # 2. Smarter Type Detection
+            elem_type = current_node.get('modelType')
             
-            # 2. Heuristic: If it's "Unknown", but has a 'kind' field, it's a Qualifier
-            if elem_type == 'Unknown Type' and 'kind' in current_node:
-                elem_type = 'Qualifier'
-            # -------------------------------
+            # If no modelType, infer it from structural clues
+            if not elem_type:
+                if 'kind' in current_node: elem_type = "Qualifier"
+                elif 'value' in current_node: elem_type = "Property"
+                elif 'submodelElements' in current_node: elem_type = "Submodel"
+                else: elem_type = "StructuralElement"
+
+            # Use semantic IRI as a name fallback if even after inference we have "Unknown Term"
+            if not term:
+                keys = current_node.get('semanticId', {}).get('keys', [])
+                if keys:
+                    iri_val = keys[0].get('value', '')
+                    # Split by slash, remove empty strings and numeric version segments
+                    segments = [s for s in iri_val.split('/') if s and not s.isdigit()]
+                    # Take the last valid segment (the entity name)
+                    term = segments[-1] if segments else "Unnamed"
+                else:
+                    term = "Unknown"
             
             desc = get_english_desc(current_node.get('description', []))
+            
             found_relations = []
             
             # Primary semanticId extraction
@@ -134,7 +149,7 @@ def extract_terms_from_json(node, filename: str) -> list:
             for v in current_node.values(): traverse(v)
         elif isinstance(current_node, list):
             for item in current_node: traverse(item)
-
+    
     traverse(node)
     return terms
 
@@ -258,6 +273,70 @@ def export_ops_to_csv(ops_dict: dict, output_filename: str):
             writer.writerow([file, ", ".join(ops_dict[file])])
     print(f"[Success] Operations Filter ({len(ops_dict)} files) exported to: {output_filename}")
 
+def export_simple_glossary(terms: list, output_filename="glossary_summary.txt"):
+    """
+    Creates an alphabetically sorted text file of unique terms.
+    Structure: (expanded_name, definition, first_iri, first_file)
+    """
+    # 1. Use a dictionary to keep unique entries based on Expanded Name
+    unique_map = {}
+    
+    for item in terms:
+        name = item['Expanded Name']
+        # Only add to the map if we haven't seen this name before (ensures 'first' occurrence)
+        if name not in unique_map:
+            unique_map[name] = (
+                name,
+                item['Definition'],
+                item['IRI'],
+                item['Source File']
+            )
+
+    # 2. Sort by the Expanded Name (the first element of the tuple)
+    sorted_list = sorted(unique_map.values(), key=lambda x: x[0])
+
+    # 3. Write to a clean text file
+    with open(output_filename, 'w', encoding='utf-8') as f:
+        for entry in sorted_list:
+            name, desc, iri, file = entry
+            f.write(f"Name: {name}\n")
+            f.write(f"Def:  {desc}\n")
+            f.write(f"IRI:  {iri}\n")
+            f.write(f"Src:  {file}\n")
+            f.write("-" * 50 + "\n")
+            
+    print(f"[Success] Simple glossary summary ({len(sorted_list)} unique items) exported to: {output_filename}")
+
+import json # Ensure this is at the top of your imports
+
+def export_simple_glossary_json(terms: list, output_filename="glossary_summary.json"):
+    """
+    Creates an alphabetically sorted JSON file of unique terms.
+    Structure: List of objects [ {name, definition, iri, source_file} ]
+    """
+    # 1. Dictionary to keep unique entries based on Expanded Name
+    unique_map = {}
+    
+    for item in terms:
+        name = item['Expanded Name']
+        # Only add to the map if we haven't seen this name before (captures the 'first' occurrence)
+        if name not in unique_map:
+            unique_map[name] = {
+                "name": name,
+                "definition": item['Definition'],
+                "iri": item['IRI'],
+                "source_file": item['Source File']
+            }
+
+    # 2. Sort by Expanded Name (the 'name' key)
+    sorted_list = sorted(unique_map.values(), key=lambda x: x['name'])
+
+    # 3. Write to a clean JSON file
+    with open(output_filename, 'w', encoding='utf-8') as f:
+        json.dump(sorted_list, f, indent=4, ensure_ascii=False)
+            
+    print(f"[Success] JSON summary ({len(sorted_list)} unique items) exported to: {output_filename}")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("directory")
@@ -270,4 +349,6 @@ if __name__ == "__main__":
         export_types_to_csv(terms, "idta_element_types.csv")
         export_glossary_to_csv(terms, "idta_glossary.csv")
         export_ops_to_csv(ops, "idta_files_with_operations.csv")
+        export_simple_glossary(terms, "glossary_summary.txt")
+        export_simple_glossary_json(terms, "glossary_summary.json")
     else: print(f"Path not found: {path}")
